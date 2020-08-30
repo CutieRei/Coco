@@ -1,5 +1,5 @@
-import discord, aiosqlite, datetime, inspect,uuid
-from discord.ext import commands
+import discord, aiosqlite, datetime, inspect,uuid, random
+from discord.ext import commands,tasks
 sql = aiosqlite
 
 
@@ -23,7 +23,10 @@ class Guild(commands.Cog):
             
             await db.execute("INSERT INTO members (id,growid) VALUES (?,?)",(ctx.author.id,name,))
             await db.commit()
-            await ctx.author.edit(nick=f"「{name}」{ctx.author.name}")
+            try:
+                await ctx.author.edit(nick=f"「{name}」{ctx.author.name}")
+            except:
+                pass
             await self.log.send(embed=discord.Embed(description=f"{ctx.author} Registered as {name} at {datetime.datetime.utcnow()}", colour=ctx.author.colour))
             await ctx.send("Registered!")
 
@@ -59,10 +62,10 @@ class Guild(commands.Cog):
             embed.add_field(name="ID",value=data[0],inline=False)
             await ctx.send(embed=embed)
 
-    @commands.command(aliases=["depo","dep"])
+    @commands.command()
     @commands.is_owner()
     @commands.guild_only()
-    async def deposit(self,ctx,amount:int,member: discord.Member):
+    async def add(self,ctx,amount:int,member: discord.Member):
         """
         Deposit some points to a member
         """
@@ -117,7 +120,7 @@ class Guild(commands.Cog):
         Reset the contribution points
         """
         def check(msg):
-            if msg.author.id == ctx.      author.id:
+            if msg.author.id == ctx.author.id:
                 return True
             return False
         msg1 = await ctx.send("Are you sure?")
@@ -165,6 +168,8 @@ class Guild(commands.Cog):
         person = ctx.author
         wls = 0
         growid = None
+        if member and ctx.author.guild_permissions.manage_channels:
+            person = member
         async with sql.connect("db/data.sql") as db:
             async with db.execute("SELECT * FROM members WHERE id = ?",(person.id,)) as c:
                 wls = await c.fetchone()
@@ -185,10 +190,10 @@ class Guild(commands.Cog):
         embed.set_footer(icon_url=ctx.author.avatar_url_as(static_format='png'),text=ctx.author)
         await ctx.send(embed=embed)
 
-    @commands.command()
+    @commands.command(aliases=["depo","dep"])
     @commands.guild_only()
     @commands.is_owner()
-    async def give(self,ctx,amount:int,*,member: discord.Member):
+    async def deposit(self,ctx,amount:int,*,member: discord.Member):
         async with sql.connect("db/data.sql") as db:
             async with db.execute("SELECT * FROM members WHERE id = ?",(member.id,)) as c:
                 user = await c.fetchone()
@@ -200,10 +205,10 @@ class Guild(commands.Cog):
                 await self.log.send(embed=discord.Embed(description=f"{ctx.author} Gave {member} **{amount}Wls** to their balance",colour=ctx.author.colour))
                 await ctx.send("Success!")
 
-    @commands.command()
+    @commands.command(aliases=["draw"])
     @commands.is_owner()
     @commands.guild_only()
-    async def ungive(self,ctx,amount:int,member:discord.Member):
+    async def withdraw(self,ctx,amount:int,member:discord.Member):
     	async with sql.connect('db/data.sql') as db:
     		async with db.execute("SELECT * FROM members WHERE id = ?",(member.id,)) as c:
     			user = await c.fetchone()
@@ -218,9 +223,71 @@ class Guild(commands.Cog):
     				return
     			await ctx.send('I cannot find them.')
 
+    @commands.command()
+    async def search(self,ctx,*,name):
+        async with sql.connect("db/data.sql") as db:
+            async with db.execute("SELECT * FROM members") as c:
+                members = await c.fetchall()
+                for id,growid,point,wls in members:
+                    if growid.lower() == name.lower():
+                        embed = discord.Embed(title=f"Founded {name}", description=f"Successfully founded members with name of {name}", timestamp=datetime.datetime.utcnow(),colour=ctx.author.colour)
+                        embed.add_field(name="GrowID",value=growid)
+                        embed.add_field(name="ID",value=id)
+                        embed.add_field(name="Contribution",value=point)
+                        member = ctx.guild.get_member(id)
+                        embed.set_thumbnail(url=member.avatar_url_as(static_format='png'))
+                        embed.set_footer(icon_url=member.avatar_url_as(static_format='png'),text=member)
+                        await ctx.send(embed=embed)
+                        return
+            await ctx.send(f"Cannot find members with the name of {name}")
+
 class Utils(commands.Cog):
     def __init__(self,bot):
         self.bot = bot
+        self.loop.start()
+    
+    @commands.command()
+    async def ping(self,ctx):
+        """
+        Shows the bot latency
+        """
+        ping = self.bot.latency*1000
+        colour = None
+        if ping > 300:
+            colour = discord.Colour.red
+        elif ping > 200:
+            colour = discord.Colour.gold
+        else:
+            colour = discord.Colour.green
+        embed = discord.Embed(
+        title='Pong!',
+        colour=colour,
+        timestamp=datetime.datetime.utcnow(),
+        description=f"My ping is {ping}ms"
+        )
+        embed.set_footer(icon_url=ctx.guild.me.avatar_url,text=random.choice(["I won!","Hey?","Why hello there","Sup!","Ping Pong, i win!","Hey there bud"]))
+        await ctx.send(embed=embed)
+    
+    @commands.command()
+    async def uptime(self,ctx):
+        """
+        Shows the bot uptime
+        """
+        second,minute,hour,day = int((datetime.datetime.utcnow()-self.bot.uptime).second),0,0,0
+        if second > 60:
+            minute += second//60
+            second = second%60
+        if minute > 60:
+            hour += minute//60
+            minute = minute%60
+        if hour > 24:
+            day += hour//24
+            hour = hour%24
+        embed = discord.Embed(
+        title="Bot Uptime!",
+        colour=ctx.author.colour,
+        timestamp=datetime.datetime.utcnow()
+        )
     
     async def syntax(self,cmd):
         help = cmd.help or "No description"
@@ -238,6 +305,12 @@ class Utils(commands.Cog):
                 params.append(f"<{name}>")
         return {"help":help,"alias":call,"params":params}
     
+    @tasks.loop(hours=2)
+    async def loop(self):
+        with open('db/data_backup.sql','wb') as backup:
+            with open("db/data.sql",'rb') as db:
+                backup.write(db.read())
+    
     @commands.command()
     @commands.is_owner()
     @commands.guild_only()
@@ -245,12 +318,9 @@ class Utils(commands.Cog):
         """
         disconnect the bot
         """
+        self.loop.stop()
         await ctx.send("Disconnected!")
         await self.bot.logout()
-
-    @commands.Cog.listener()
-    async def on_ready(self):
-        print("!--Bot ready--!")
     
     @commands.command()
     async def help(self,ctx,cmd=None):
@@ -264,13 +334,18 @@ class Utils(commands.Cog):
             colour=ctx.author.colour,
             timestamp=datetime.datetime.utcnow()
             )
+            cmds = dict({})
             for name,cog in self.bot.cogs.items():
-                if name == "Jishaku" or not [i for i in cog.walk_commands()]:
+                cmds[name] = []
+            cmds['No Modules'] = []
+            for command in self.bot.commands:
+                if not command.cog_name:
+                    cmds['No Modules'].append(command.name)
                     continue
-                cmd = []
-                for i in cog.walk_commands():
-                    cmd.append(str(i))
-                embed.add_field(name=name,value=" , ".join(cmd),inline=False)
+                cmds[command.cog_name].append(command.name)
+            for cog,cmd in cmds.items():
+                embed.add_field(name=cog,value=",".join(cmd),inline=False)
+            
             embed.set_footer(icon_url=ctx.guild.me.avatar_url_as(static_format='png'),text=f'Type {ctx.prefix}help [command] for more info about specific command')
             await ctx.send(embed=embed)
             return
@@ -322,9 +397,20 @@ class Utils(commands.Cog):
 class Event(commands.Cog):
 	def __init__(self,bot):
 		self.bot = bot
-
+	
+	@commands.Cog.listener()
+	async def on_ready(self):
+	    self.bot.reload_extension("category")
+	    print("[Bot] Ready!")
+	
 	@commands.Cog.listener()
 	async def on_command_error(self,ctx,err):
+		embed = discord.Embed(
+		title=f"{err} Error",
+		timestamp=datetime.datetime.utcnow(),
+		colour=discord.Colour.from_rgb(255,70,0)
+		)
+		embed.set_footer(icon_url=ctx.author.avatar_url_as(static_format='png'),text="an error occurred")
 		if getattr(ctx.command,'on_error',None):
 			return
 		if isinstance(err,commands.CommandNotFound):
@@ -332,17 +418,22 @@ class Event(commands.Cog):
 		elif isinstance(err,commands.ConversionError):
 			await ctx.send(dir(err))
 		elif isinstance(err,commands.MissingRequiredArgument):
-			await ctx.send(f'Missing argument **{err.param.name}**')
+			embed.description = f'Missing argument **{err.param.name}**'
+			await ctx.send(embed=embed)
 		elif isinstance(err,commands.BadArgument):
-			await ctx.send(err.args[0])
+			embed.description = ",".join(err.args[0])
+			await ctx.send(embed=embed)
 		elif isinstance(err,commands.PrivateMessageOnly):
-			await ctx.send('You can only use this command on DM')
+			embed.description = 'You can only use this command on DM'
+			await ctx.send(embed=embed)
 		elif isinstance(err,commands.NoPrivateMessage):
-			await ctx.send("You can only use this command on Servers")
+			embed.description = "You can only use this command on Servers"
+			await ctx.send(embed=embed)
 		elif isinstance(err,commands.DisabledCommand):
-			await ctx.send('This command is currently disabled')
+			embed.description = 'This command is currently disabled'
 		elif isinstance(err,commands.TooManyArguments):
-			await ctx.send('You gave too many argument!')
+			embed.description = 'You gave too many argument!'
+			await ctx.send(embed=embed)
 		elif isinstance(err,commands.CommandOnCooldown):
 			minute,hour,second = 0,0,int(err.retry_after)
 			if second > 60:
@@ -351,12 +442,18 @@ class Event(commands.Cog):
 			if minute > 60:
 				hour += minute // 60
 				minute = minute % hour
-			await ctx.send(f"You need to wait **{hour}h {minute}m {second}s** to use the command again, command cooldown is **{err.cooldown.per}s** per **{err.cooldown.type.name.capitalize()}** for **{err.cooldown.rate}x**")
+			embed.description = f"You need to wait **{hour}h {minute}m {second}s** to use the command again, command cooldown is **{err.cooldown.per}s** per **{err.cooldown.type.name.capitalize()}** for **{err.cooldown.rate}x**"
+			await ctx.send(embed=embed)
 		else:
 			raise err
 
 def setup(bot):
+    if bot.ready_once:
+        print("[Cogs] Reloading cogs")
+    else:
+        print("[Cogs] Loading cogs")
+        bot.ready_once = True
     bot.add_cog(Guild(bot))
     bot.add_cog(Utils(bot))
     bot.add_cog(Event(bot))
-    print("--Loaded all cogs--")
+    print("[Cogs] Loaded all cogs")
