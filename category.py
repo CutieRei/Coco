@@ -1,4 +1,4 @@
-import discord, aiosqlite, datetime, inspect,uuid, random
+import discord, aiosqlite, datetime, inspect,uuid, random,aiohttp
 from discord.ext import commands,tasks
 sql = aiosqlite
 
@@ -24,7 +24,7 @@ class Guild(commands.Cog):
             await db.execute("INSERT INTO members (id,growid) VALUES (?,?)",(ctx.author.id,name,))
             await db.commit()
             try:
-                await ctx.author.edit(nick=f"「{name}」{ctx.author.name}")
+                await ctx.author.edit(nick=ctx.author.display_name+f"| {name}")
             except:
                 pass
             await self.log.send(embed=discord.Embed(description=f"{ctx.author} Registered as {name} at {datetime.datetime.utcnow()}", colour=ctx.author.colour))
@@ -60,6 +60,7 @@ class Guild(commands.Cog):
             embed.add_field(name="Contribution",value=data[2],inline=False)
             embed.add_field(name="GrowID",value=data[1],inline=False)
             embed.add_field(name="ID",value=data[0],inline=False)
+            embed.add_field(name="Rank",value=data[4] or 'No rank')
             await ctx.send(embed=embed)
 
     @commands.command()
@@ -106,7 +107,7 @@ class Guild(commands.Cog):
                 colour=ctx.author.colour    
                 )
                 count = 1
-                for id,name,contri,wls in users:
+                for id,name,contri,wls,rank in users:
                     embed.add_field(name=str(count)+f". {self.bot.get_user(id)}",value=f"GrowID: **{name}**"+"\n"+f"Contribution: **{contri}**",inline=False)
                     count += 1
                 embed.set_footer(icon_url=ctx.guild.me.avatar_url,text="v1")
@@ -209,26 +210,26 @@ class Guild(commands.Cog):
     @commands.is_owner()
     @commands.guild_only()
     async def withdraw(self,ctx,amount:int,member:discord.Member):
-    	async with sql.connect('db/data.sql') as db:
-    		async with db.execute("SELECT * FROM members WHERE id = ?",(member.id,)) as c:
-    			user = await c.fetchone()
-    			if amount > user[3]:
-    				amount = user[3]
-    			if user:
-    				await db.execute("UPDATE members SET wls = wls - ? WHERE id = ?",(amount,member.id,))
-    				await db.commit()
-    				embed = discord.Embed(title="Success",description=f"Successfully removed **{amount}Wls** from {member}",timestamp=datetime.datetime.utcnow(),colour=ctx.author.colour)
-    				embed.add_field(name='GrowID',value=user[1])
-    				await ctx.send(embed=embed)
-    				return
-    			await ctx.send('I cannot find them.')
+        async with sql.connect('db/data.sql') as db:
+            async with db.execute("SELECT * FROM members WHERE id = ?",(member.id,)) as c:
+                user = await c.fetchone()
+                if amount > user[3]:
+                    amount = user[3]
+                if user:
+                    await db.execute("UPDATE members SET wls = wls - ? WHERE id = ?",(amount,member.id,))
+                    await db.commit()
+                    embed = discord.Embed(title="Success",description=f"Successfully removed **{amount}Wls** from {member}",timestamp=datetime.datetime.utcnow(),colour=ctx.author.colour)
+                    embed.add_field(name='GrowID',value=user[1])
+                    await ctx.send(embed=embed)
+                    return
+                await ctx.send('I cannot find them.')
 
     @commands.command()
     async def search(self,ctx,*,name):
         async with sql.connect("db/data.sql") as db:
             async with db.execute("SELECT * FROM members") as c:
                 members = await c.fetchall()
-                for id,growid,point,wls in members:
+                for id,growid,point,wls,rank in members:
                     if growid.lower() == name.lower():
                         embed = discord.Embed(title=f"Founded {name}", description=f"Successfully founded members with name of {name}", timestamp=datetime.datetime.utcnow(),colour=ctx.author.colour)
                         embed.add_field(name="GrowID",value=growid)
@@ -240,6 +241,36 @@ class Guild(commands.Cog):
                         await ctx.send(embed=embed)
                         return
             await ctx.send(f"Cannot find members with the name of {name}")
+
+    @commands.command()
+    @commands.is_owner()
+    async def promote(self,ctx,rank_name,*,name):
+        async with sql.connect('db/data.sql') as db:
+            async with db.execute("SELECT * FROM members") as c:
+                members = await c.fetchall()
+                member = None
+                for id,growid,point,wls,rank in members:
+                    if name.lower() == growid.lower():
+                        member = (id,growid,point,wls,rank)
+                if not member:
+                    await ctx.send("I cant find that member, perhaps you make a typo")
+                    return
+
+                embed = discord.Embed(
+                    title=f"Promoted!",
+                    description=f"Successfully promoted {member[1]} to {rank_name}",
+                    timestamp=datetime.datetime.utcnow(),
+                    colour=ctx.author.colour
+                )
+                embed.set_thumbnail(url=self.bot.get_user(member[0]).avatar_url_as(static_format='png'))
+                await ctx.send(embed=embed)
+                await db.execute('UPDATE members SET rank = ? WHERE id = ?',(rank_name,member[0],))
+                await db.commit()
+                try:
+                    await ctx.author.edit(nick=ctx.author.display_name+f'|{rank_name}')
+                except:
+                    pass
+
 
 class Utils(commands.Cog):
     def __init__(self,bot):
@@ -254,16 +285,16 @@ class Utils(commands.Cog):
         ping = self.bot.latency*1000
         colour = None
         if ping > 300:
-            colour = discord.Colour.red
+            colour = discord.Colour.red()
         elif ping > 200:
-            colour = discord.Colour.gold
+            colour = discord.Colour.gold()
         else:
-            colour = discord.Colour.green
+            colour = discord.Colour.green()
         embed = discord.Embed(
         title='Pong!',
         colour=colour,
         timestamp=datetime.datetime.utcnow(),
-        description=f"My ping is {ping}ms"
+        description=f"My ping is {int(ping)}ms"
         )
         embed.set_footer(icon_url=ctx.guild.me.avatar_url,text=random.choice(["I won!","Hey?","Why hello there","Sup!","Ping Pong, i win!","Hey there bud"]))
         await ctx.send(embed=embed)
@@ -273,21 +304,22 @@ class Utils(commands.Cog):
         """
         Shows the bot uptime
         """
-        second,minute,hour,day = int((datetime.datetime.utcnow()-self.bot.uptime).second),0,0,0
+        second,minute,hour,day = int((datetime.datetime.utcnow()-self.bot.uptime).seconds),0,0,int((datetime.datetime.utcnow()-self.bot.uptime).days)
         if second > 60:
             minute += second//60
             second = second%60
         if minute > 60:
             hour += minute//60
             minute = minute%60
-        if hour > 24:
-            day += hour//24
+        if day >= 1:
             hour = hour%24
         embed = discord.Embed(
         title="Bot Uptime!",
         colour=ctx.author.colour,
-        timestamp=datetime.datetime.utcnow()
+        timestamp=datetime.datetime.utcnow(),
+        description=f"{day}d {hour}h {minute}m {second}s"
         )
+        await ctx.send(embed=embed)
     
     async def syntax(self,cmd):
         help = cmd.help or "No description"
@@ -310,7 +342,39 @@ class Utils(commands.Cog):
         with open('db/data_backup.sql','wb') as backup:
             with open("db/data.sql",'rb') as db:
                 backup.write(db.read())
+
+    @commands.group(invoke_without_command=True,case_insensitive=True)
+    async def avatar(self,ctx):
+        commands = ctx.command.commands
+        desc = [f"{cmd}" for cmd in commands]
+        embed=discord.Embed(title="Subcommands", description="\n".join(desc))
+        await ctx.send(embed=embed)
     
+    @avatar.command()
+    async def show(self,ctx,member: discord.User):
+        embed = discord.Embed(url=str(member.avatar_url),title="Avatar URL")
+        embed.set_image(url=member.avatar_url_as(static_format='png',size=256))
+        await ctx.send(embed=embed)
+    
+    @avatar.command()
+    @commands.is_owner()
+    async def save(self,ctx,member: discord.User):
+        avatar = member.avatar_url
+        avatar_uri = f'{member.id}.{str(avatar).split(".")[-1].split("?")[0]}'
+        if member.is_avatar_animated():
+            avatar_uri = avatar_uri.split(".")
+            avatar_uri[-1] = "gif"
+            avatar_uri = ".".join(avatar_uri)
+        else:
+            avatar_uri = avatar_uri.split(".")
+            avatar_uri[-1] = "png"
+            avatar_uri = ".".join(avatar_uri)
+        with open(f'avatars/{avatar_uri}',"wb") as file:
+            await avatar.save(file)
+        await ctx.send(f"Saved in ```/avatars/{avatar_uri}```")
+        
+        
+        
     @commands.command()
     @commands.is_owner()
     @commands.guild_only()
@@ -336,6 +400,8 @@ class Utils(commands.Cog):
             )
             cmds = dict({})
             for name,cog in self.bot.cogs.items():
+                if not [i for i in cog.walk_commands()]:
+                    continue
                 cmds[name] = []
             cmds['No Modules'] = []
             for command in self.bot.commands:
@@ -344,7 +410,7 @@ class Utils(commands.Cog):
                     continue
                 cmds[command.cog_name].append(command.name)
             for cog,cmd in cmds.items():
-                embed.add_field(name=cog,value=",".join(cmd),inline=False)
+                embed.add_field(name=cog,value=",".join(cmd) or "No commands",inline=False)
             
             embed.set_footer(icon_url=ctx.guild.me.avatar_url_as(static_format='png'),text=f'Type {ctx.prefix}help [command] for more info about specific command')
             await ctx.send(embed=embed)
@@ -366,86 +432,124 @@ class Utils(commands.Cog):
     @commands.command()
     @commands.guild_only()
     async def suggest(self,ctx):
-    	def check(msg):
-    		return True if msg.author.id == ctx.author.id else False
-    	channel = self.bot.get_channel(739526508137152633)
-    	msg = await ctx.send('What is your suggestion title? (type "abort" to abort suggestion)')
-    	title = await self.bot.wait_for('message',check=check)
-    	await msg.delete()
-    	if title.content.lower() == 'abort':
-    		await ctx.send("Suggestion has been aborted")
-    		await title.delete()
-    		return
-    	await title.delete()
-    	msg = await ctx.send('What is the suggestion itself?')
-    	description= await self.bot.wait_for('message',check=check)
-    	await msg.delete()
-    	await description.delete()
-    	embed = discord.Embed(
-    		title=f'Suggestion by {ctx.author}',
-    		colour=discord.Colour.from_rgb(30,200,255),
-    		timestamp=datetime.datetime.utcnow()
-    	)
-    	embed.add_field(name='Title',value=title.content)
-    	embed.add_field(name="Description",value=description.content)
-    	embed.set_footer(icon_url=ctx.author.avatar_url_as(static_format='png'),text=ctx.author)
-    	suggest = await channel.send(embed=embed)
-    	await suggest.add_reaction('\U0000274e')
-    	await suggest.add_reaction('\U00002705')
-    	await ctx.send("Suggestion posted!")
+        def check(msg):
+            return True if msg.author.id == ctx.author.id else False
+        channel = self.bot.get_channel(739526508137152633)
+        msg = await ctx.send('What is your suggestion title? (type "abort" to abort suggestion)')
+        title = await self.bot.wait_for('message',check=check)
+        await msg.delete()
+        if title.content.lower() == 'abort':
+            await ctx.send("Suggestion has been aborted")
+            await title.delete()
+            return
+        await title.delete()
+        msg = await ctx.send('What is the suggestion itself?')
+        description= await self.bot.wait_for('message',check=check)
+        await msg.delete()
+        await description.delete()
+        embed = discord.Embed(
+            title=f'Suggestion by {ctx.author}',
+            colour=discord.Colour.from_rgb(30,200,255),
+            timestamp=datetime.datetime.utcnow()
+        )
+        embed.add_field(name='Title',value=title.content)
+        embed.add_field(name="Description",value=description.content)
+        embed.set_footer(icon_url=ctx.author.avatar_url_as(static_format='png'),text=ctx.author)
+        suggest = await channel.send(embed=embed)
+        await suggest.add_reaction('\U0000274e')
+        await suggest.add_reaction('\U00002705')
+        await ctx.send("Suggestion posted!")
 
 class Event(commands.Cog):
-	def __init__(self,bot):
-		self.bot = bot
-	
-	@commands.Cog.listener()
-	async def on_ready(self):
-	    self.bot.reload_extension("category")
-	    print("[Bot] Ready!")
-	
-	@commands.Cog.listener()
-	async def on_command_error(self,ctx,err):
-		embed = discord.Embed(
-		title=f"{err} Error",
-		timestamp=datetime.datetime.utcnow(),
-		colour=discord.Colour.from_rgb(255,70,0)
-		)
-		embed.set_footer(icon_url=ctx.author.avatar_url_as(static_format='png'),text="an error occurred")
-		if getattr(ctx.command,'on_error',None):
-			return
-		if isinstance(err,commands.CommandNotFound):
-			pass
-		elif isinstance(err,commands.ConversionError):
-			await ctx.send(dir(err))
-		elif isinstance(err,commands.MissingRequiredArgument):
-			embed.description = f'Missing argument **{err.param.name}**'
-			await ctx.send(embed=embed)
-		elif isinstance(err,commands.BadArgument):
-			embed.description = ",".join(err.args[0])
-			await ctx.send(embed=embed)
-		elif isinstance(err,commands.PrivateMessageOnly):
-			embed.description = 'You can only use this command on DM'
-			await ctx.send(embed=embed)
-		elif isinstance(err,commands.NoPrivateMessage):
-			embed.description = "You can only use this command on Servers"
-			await ctx.send(embed=embed)
-		elif isinstance(err,commands.DisabledCommand):
-			embed.description = 'This command is currently disabled'
-		elif isinstance(err,commands.TooManyArguments):
-			embed.description = 'You gave too many argument!'
-			await ctx.send(embed=embed)
-		elif isinstance(err,commands.CommandOnCooldown):
-			minute,hour,second = 0,0,int(err.retry_after)
-			if second > 60:
-				minute += second // 60
-				second = second%minute
-			if minute > 60:
-				hour += minute // 60
-				minute = minute % hour
-			embed.description = f"You need to wait **{hour}h {minute}m {second}s** to use the command again, command cooldown is **{err.cooldown.per}s** per **{err.cooldown.type.name.capitalize()}** for **{err.cooldown.rate}x**"
-			await ctx.send(embed=embed)
-		else:
-			raise err
+    def __init__(self,bot):
+        self.bot = bot
+    
+    @commands.Cog.listener()
+    async def on_ready(self):
+        self.bot.reload_extension("category")
+        print("[Bot] Ready!")
+    
+    @commands.Cog.listener()
+    async def on_command_error(self,ctx,err):
+        embed = discord.Embed(
+        title=f"{err} Error",
+        timestamp=datetime.datetime.utcnow(),
+        colour=discord.Colour.from_rgb(255,70,0)
+        )
+        embed.set_footer(icon_url=ctx.author.avatar_url_as(static_format='png'),text="an error occurred")
+        if getattr(ctx.command,'on_error',None):
+            return
+        if isinstance(err,commands.CommandNotFound):
+            pass
+        elif isinstance(err,commands.ConversionError):
+            await ctx.send(dir(err))
+        elif isinstance(err,commands.MissingRequiredArgument):
+            embed.description = f'Missing argument **{err.param.name}**'
+            await ctx.send(embed=embed)
+        elif isinstance(err,commands.BadArgument):
+            embed.description = ",".join(err.args[0])
+            await ctx.send(embed=embed)
+        elif isinstance(err,commands.PrivateMessageOnly):
+            embed.description = 'You can only use this command on DM'
+            await ctx.send(embed=embed)
+        elif isinstance(err,commands.NoPrivateMessage):
+            embed.description = "You can only use this command on Servers"
+            await ctx.send(embed=embed)
+        elif isinstance(err,commands.DisabledCommand):
+            embed.description = 'This command is currently disabled'
+        elif isinstance(err,commands.TooManyArguments):
+            embed.description = 'You gave too many argument!'
+            await ctx.send(embed=embed)
+        elif isinstance(err,commands.CommandOnCooldown):
+            minute,hour,second = 0,0,int(err.retry_after)
+            if second > 60:
+                minute += second // 60
+                second = second%minute
+            if minute > 60:
+                hour += minute // 60
+                minute = minute % hour
+            embed.description = f"You need to wait **{hour}h {minute}m {second}s** to use the command again, command cooldown is **{err.cooldown.per}s** per **{err.cooldown.type.name.capitalize()}** for **{err.cooldown.rate}x**"
+            await ctx.send(embed=embed)
+        else:
+            embed.description = "Unregistered error has occured!"
+            await ctx.send(embed=embed)
+            raise err
+
+class Growtopia(commands.Cog):
+    def __init__(self,bot):
+        self.bot = bot
+        self.url = 'https://growtopiagame.com'
+
+    @commands.command(aliases=["rw"])
+    async def render(self,ctx,world):
+        async with ctx.typing():
+            async with aiohttp.ClientSession() as sess:
+                async with sess.get(self.url+f'/worlds/{world.lower()}.png') as resp:
+                    if not resp.status == 200:
+                        await ctx.send("That world isn't rendered yet..")
+                        return
+                    embed = discord.Embed(title=f"render world of {world.upper()}")
+                    embed.set_image(url=self.url+f'/worlds/{world.lower()}.png') 
+                    await ctx.send(embed=embed)             
+    
+    @commands.command(aliases=["stat"])
+    async def status(self,ctx):
+        async with ctx.typing():
+            async with aiohttp.ClientSession() as sess:
+                async with sess.get(self.url+"/detail") as resp:
+                    data = await resp.json(content_type="text/html")
+                    data['online_user'] = int(data["online_user"])
+                    colour = discord.Colour
+                    embed = discord.Embed(
+                    title=f"Growtopia Status",
+                    colour=colour.red() if data.get('online_user') < 10 else colour.green(),
+                    timestamp=datetime.datetime.utcnow(),
+                    description=f"Online User: **{str(data.get('online_user'))}**"+"\nStatus: "+("**Online**" if data.get('online_user') > 10 else "**Offline**")
+                    )
+                    embed.set_thumbnail(url='https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRFfI3vRa4Uu7DK2QmgeUY-tCLKyc4eOLGl5cvQDkjjlXe6y-NjFZwmbt-v&s=10')
+                    #yembed.set_footer(icon_url='https://s3.eu-west-1.amazonaws.com/cdn.growtopiagame.com/website/resources/assets/images/ubi_icon.png',text=f"Copyright Ubisoft {datetime.datetime.utcnow().year}")
+                    await ctx.send(embed=embed)
+    
 
 def setup(bot):
     if bot.ready_once:
@@ -456,4 +560,5 @@ def setup(bot):
     bot.add_cog(Guild(bot))
     bot.add_cog(Utils(bot))
     bot.add_cog(Event(bot))
+    bot.add_cog(Growtopia(bot))
     print("[Cogs] Loaded all cogs")
