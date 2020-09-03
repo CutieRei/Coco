@@ -10,6 +10,33 @@ class Guild(commands.Cog):
     
     @commands.command()
     @commands.guild_only()
+    @commands.is_owner()
+    async def deduct(self,ctx,points:int,member: discord.Member):
+        """
+        Remove points from member
+        """
+        async with sql.connect("db/data.sql") as db:
+            async with db.execute("SELECT * FROM members WHERE id = ?",(member.id,)) as c:
+                user = await c.fetchone()
+                if not user:
+                    await ctx.send("That member isn't registered")
+                    return
+                if points > user[2]:
+                    points = user[2]
+                await db.execute("UPDATE members SET contribution = contribution - ? WHERE id = ?",(points,member.id,))
+                await db.commit()
+                embed = discord.Embed(
+                title="Successfully deducted",
+                description=f"Successfully deducted **{points}** from {member}({user[1]})",
+                timestamp=datetime.datetime.utcnow()
+                )
+                embed.set_thumbnail(url=member.avatar_url_as(static_format='png'))
+                embed.set_footer(icon_url=ctx.author.avatar_url_as(static_format='png'),text="v1")
+                await ctx.send(embed=embed)
+                
+    
+    @commands.command()
+    @commands.guild_only()
     async def register(self,ctx,*,name):
         """
         register your GrowID
@@ -81,15 +108,15 @@ class Guild(commands.Cog):
                 await db.execute("UPDATE members SET contribution = contribution + ? WHERE id = ?",(amount,member.id,))
                 await db.commit()
                 embed = discord.Embed(
-                title=f"Successful deposited!",
+                title=f"Successfully added!",
                 timestamp=datetime.datetime.utcnow(),
                 colour=ctx.author.colour    
                 )
-                embed.add_field(name="Amount",value=amount)
+                embed.add_field(name="Pointd",value=amount)
                 embed.add_field(name="GrowID",value=user[1])
                 embed.set_footer(icon_url=ctx.guild.me.avatar_url,text="v1")
                 embed.set_thumbnail(url=member.avatar_url_as(static_format='png'))
-                await self.log.send(embed=discord.Embed(description=f"{ctx.author} Deposited {amount} to {member} with the growid of {growid}", colour=ctx.author.colour))
+                await self.log.send(embed=discord.Embed(description=f"{ctx.author} Added {amount} to {member} with the growid of {growid}", colour=ctx.author.colour))
                 await ctx.send(embed=embed)
 
     @commands.command()
@@ -166,6 +193,9 @@ class Guild(commands.Cog):
     @commands.command(aliases=["bal"])
     @commands.guild_only()
     async def balance(self,ctx,member: discord.Member=None):
+        """
+        Check member balance
+        """
         person = ctx.author
         wls = 0
         growid = None
@@ -195,6 +225,9 @@ class Guild(commands.Cog):
     @commands.guild_only()
     @commands.is_owner()
     async def deposit(self,ctx,amount:int,*,member: discord.Member):
+        """
+        Add money to a member
+        """
         async with sql.connect("db/data.sql") as db:
             async with db.execute("SELECT * FROM members WHERE id = ?",(member.id,)) as c:
                 user = await c.fetchone()
@@ -210,6 +243,9 @@ class Guild(commands.Cog):
     @commands.is_owner()
     @commands.guild_only()
     async def withdraw(self,ctx,amount:int,member:discord.Member):
+        """
+        Remove currency on member balance
+        """
         async with sql.connect('db/data.sql') as db:
             async with db.execute("SELECT * FROM members WHERE id = ?",(member.id,)) as c:
                 user = await c.fetchone()
@@ -227,6 +263,9 @@ class Guild(commands.Cog):
     @commands.command()
     async def search(self,ctx,*,name):
         async with sql.connect("db/data.sql") as db:
+            """
+            Search member by growid
+            """
             async with db.execute("SELECT * FROM members") as c:
                 members = await c.fetchall()
                 for id,growid,point,wls,rank in members:
@@ -245,6 +284,9 @@ class Guild(commands.Cog):
     @commands.command()
     @commands.is_owner()
     async def promote(self,ctx,rank_name,*,name):
+        """
+        Promote a member(use this instead of manual name changes)
+        """
         async with sql.connect('db/data.sql') as db:
             async with db.execute("SELECT * FROM members") as c:
                 members = await c.fetchall()
@@ -302,7 +344,7 @@ class Utils(commands.Cog):
     @commands.command()
     async def uptime(self,ctx):
         """
-        Shows the bot uptime
+        Shows the bot lifetime
         """
         second,minute,hour,day = int((datetime.datetime.utcnow()-self.bot.uptime).seconds),0,0,int((datetime.datetime.utcnow()-self.bot.uptime).days)
         if second > 60:
@@ -345,6 +387,9 @@ class Utils(commands.Cog):
 
     @commands.group(invoke_without_command=True,case_insensitive=True)
     async def avatar(self,ctx):
+        """
+        Group command avatar
+        """
         commands = ctx.command.commands
         desc = [f"{cmd}" for cmd in commands]
         embed=discord.Embed(title="Subcommands", description="\n".join(desc))
@@ -352,6 +397,9 @@ class Utils(commands.Cog):
     
     @avatar.command()
     async def show(self,ctx,member: discord.User):
+        """
+        Shows avatar of a member
+        """
         embed = discord.Embed(url=str(member.avatar_url),title="Avatar URL")
         embed.set_image(url=member.avatar_url_as(static_format='png',size=256))
         await ctx.send(embed=embed)
@@ -359,6 +407,9 @@ class Utils(commands.Cog):
     @avatar.command()
     @commands.is_owner()
     async def save(self,ctx,member: discord.User):
+        """
+        Save avatar of a member in .png format
+        """
         avatar = member.avatar_url
         avatar_uri = f'{member.id}.{str(avatar).split(".")[-1].split("?")[0]}'
         if member.is_avatar_animated():
@@ -380,7 +431,7 @@ class Utils(commands.Cog):
     @commands.guild_only()
     async def dc(self,ctx):
         """
-        disconnect the bot
+        kill the bot
         """
         self.loop.stop()
         await ctx.send("Disconnected!")
@@ -432,6 +483,9 @@ class Utils(commands.Cog):
     @commands.command()
     @commands.guild_only()
     async def suggest(self,ctx):
+        """
+        For suggesting
+        """
         def check(msg):
             return True if msg.author.id == ctx.author.id else False
         channel = self.bot.get_channel(739526508137152633)
@@ -522,6 +576,9 @@ class Growtopia(commands.Cog):
 
     @commands.command(aliases=["rw"])
     async def render(self,ctx,world):
+        """
+        Shows an image of a rendered world
+        """
         async with ctx.typing():
             async with aiohttp.ClientSession() as sess:
                 async with sess.get(self.url+f'/worlds/{world.lower()}.png') as resp:
@@ -534,6 +591,9 @@ class Growtopia(commands.Cog):
     
     @commands.command(aliases=["stat"])
     async def status(self,ctx):
+        """
+        Shows the server status of growtopia
+        """
         async with ctx.typing():
             async with aiohttp.ClientSession() as sess:
                 async with sess.get(self.url+"/detail") as resp:
