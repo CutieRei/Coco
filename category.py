@@ -9,6 +9,19 @@ class Guild(commands.Cog):
         self.log = self.bot.get_channel(749082254482997298)
     
     @commands.command()
+    @commands.is_owner()
+    async def remove(self,ctx,user: discord.User):
+        async with sql.connect("db/data.sql") as db:
+            async with db.execute("SELECT * FROM members WHERE id = ?",(user.id,)) as c:
+                res = await c.fetchone()
+                if not res:
+                    await ctx.send("I cannot find them")
+                    return
+                await db.execute("DELETE FROM members WHERE id = ?",(user.id,))
+                await db.commit()
+                await ctx.send("Done!")
+    
+    @commands.command()
     @commands.guild_only()
     @commands.is_owner()
     async def deduct(self,ctx,points:int,member: discord.Member):
@@ -51,7 +64,7 @@ class Guild(commands.Cog):
             await db.execute("INSERT INTO members (id,growid) VALUES (?,?)",(ctx.author.id,name,))
             await db.commit()
             try:
-                await ctx.author.edit(nick=ctx.author.display_name+f"| {name}")
+                await ctx.author.edit(nick=ctx.author.display_name+f" [{name}]")
             except:
                 pass
             await self.log.send(embed=discord.Embed(description=f"{ctx.author} Registered as {name} at {datetime.datetime.utcnow()}", colour=ctx.author.colour))
@@ -309,7 +322,7 @@ class Guild(commands.Cog):
                 await db.execute('UPDATE members SET rank = ? WHERE id = ?',(rank_name,member[0],))
                 await db.commit()
                 try:
-                    await ctx.author.edit(nick=ctx.author.display_name+f'|{rank_name}')
+                    await ctx.author.edit(nick=ctx.author.display_name+f'[{rank_name}]')
                 except:
                     pass
 
