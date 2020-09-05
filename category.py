@@ -1,4 +1,4 @@
-import discord, aiosqlite, datetime, inspect,uuid, random,aiohttp
+import discord, aiosqlite, datetime, inspect,uuid, random,aiohttp,asyncio
 from discord.ext import commands,tasks
 sql = aiosqlite
 
@@ -332,6 +332,26 @@ class Utils(commands.Cog):
         self.bot = bot
         self.loop.start()
     
+    async def check(self,ctx):
+        if ctx.author.id in self.bot.owner_ids:
+            return True
+        return False
+    
+    """
+    @commands.command()
+    @commands.is_owner()
+    async def maintenance(self,ctx):
+        if not self.bot.maintenance:
+            self.bot.add_check(self.check)
+            await ctx.send("Mode changed to: **Maintenance**")
+            self.bot.maintenance = True
+            return
+        self.bot.remove_check(self.check)
+        await ctx.send("Mode changed to: **Public**")
+        self.bot.maintenance = False
+    """
+        
+    
     @commands.command()
     async def ping(self,ctx):
         """
@@ -503,7 +523,12 @@ class Utils(commands.Cog):
             return True if msg.author.id == ctx.author.id else False
         channel = self.bot.get_channel(739526508137152633)
         msg = await ctx.send('What is your suggestion title? (type "abort" to abort suggestion)')
-        title = await self.bot.wait_for('message',check=check)
+        title = None
+        try:
+            title = await self.bot.wait_for('message',check=check,timeout=60)
+        except asyncio.TimeoutError:
+            await ctx.send("I waited too long for response")
+            return
         await msg.delete()
         if title.content.lower() == 'abort':
             await ctx.send("Suggestion has been aborted")
@@ -511,7 +536,13 @@ class Utils(commands.Cog):
             return
         await title.delete()
         msg = await ctx.send('What is the suggestion itself?')
-        description= await self.bot.wait_for('message',check=check)
+        description = None
+        try:
+            description= await self.bot.wait_for('message',check=check,timeout=60)
+        except asyncio.TimeoutError:
+            await ctx.send("I waited too long for response")
+            await msg.delete()
+            return
         await msg.delete()
         await description.delete()
         embed = discord.Embed(
@@ -577,6 +608,8 @@ class Event(commands.Cog):
                 minute = minute % hour
             embed.description = f"You need to wait **{hour}h {minute}m {second}s** to use the command again, command cooldown is **{err.cooldown.per}s** per **{err.cooldown.type.name.capitalize()}** for **{err.cooldown.rate}x**"
             await ctx.send(embed=embed)
+        elif self.bot.maintenance:
+            await ctx.send("The bot is under maintenance please be patient while we fix the current issue")
         else:
             embed.description = "Unregistered error has occured!"
             await ctx.send(embed=embed)
