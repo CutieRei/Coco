@@ -9,6 +9,14 @@ class Guild(commands.Cog):
         self.log = self.bot.get_channel(749082254482997298)
     
     @commands.command()
+    async def members(self,ctx):
+        async with sql.connect('./db/data.sql') as db:
+            async with db.execute('SELECT * FROM members') as c:
+                members = await c.fetchall()
+                embed = discord.Embed(title='Member list',colour=ctx.author.colour, timestamp=datetime.datetime.utcnow(), description="\n".join([f"**{count+1}.** Name:** {self.bot.get_user(members[count][0])}** GrowID: **{members[count][1]}**" for count in range(0,len(members)-1)]))
+                await ctx.send(embed=embed)
+    
+    @commands.command()
     @commands.is_owner()
     async def remove(self,ctx,user: discord.User):
         async with sql.connect("db/data.sql") as db:
@@ -125,7 +133,7 @@ class Guild(commands.Cog):
                 timestamp=datetime.datetime.utcnow(),
                 colour=ctx.author.colour    
                 )
-                embed.add_field(name="Pointd",value=amount)
+                embed.add_field(name="Points",value=amount)
                 embed.add_field(name="GrowID",value=user[1])
                 embed.set_footer(icon_url=ctx.guild.me.avatar_url,text="v1")
                 embed.set_thumbnail(url=member.avatar_url_as(static_format='png'))
@@ -217,10 +225,10 @@ class Guild(commands.Cog):
         async with sql.connect("db/data.sql") as db:
             async with db.execute("SELECT * FROM members WHERE id = ?",(person.id,)) as c:
                 wls = await c.fetchone()
-                growid = wls[1]
                 if not wls:
                     await ctx.send("I cannot find anything...")
                     return
+                growid = wls[1]
         if member and ctx.author.guild_permissions.manage_channels:
             person = member
         embed = discord.Embed(
@@ -284,7 +292,7 @@ class Guild(commands.Cog):
                 for id,growid,point,wls,rank in members:
                     if growid.lower() == name.lower():
                         embed = discord.Embed(title=f"Founded {name}", description=f"Successfully founded members with name of {name}", timestamp=datetime.datetime.utcnow(),colour=ctx.author.colour)
-                        embed.add_field(name="GrowID",value=growid)
+                        embed.add_field(name="Name",value=self.bot.get_user(id))
                         embed.add_field(name="ID",value=id)
                         embed.add_field(name="Contribution",value=point)
                         member = ctx.guild.get_member(id)
@@ -608,8 +616,9 @@ class Event(commands.Cog):
                 minute = minute % hour
             embed.description = f"You need to wait **{hour}h {minute}m {second}s** to use the command again, command cooldown is **{err.cooldown.per}s** per **{err.cooldown.type.name.capitalize()}** for **{err.cooldown.rate}x**"
             await ctx.send(embed=embed)
-        elif self.bot.maintenance:
-            await ctx.send("The bot is under maintenance please be patient while we fix the current issue")
+        elif isinstance(err,commands.NotOwner):
+            embed.description = "You're not the bot owners, and you can't execute this command"
+            await ctx.send(embed=embed)
         else:
             embed.description = "Unregistered error has occured!"
             await ctx.send(embed=embed)
@@ -653,7 +662,8 @@ class Growtopia(commands.Cog):
                     description=f"Online User: **{str(data.get('online_user'))}**"+"\nStatus: "+("**Online**" if data.get('online_user') > 10 else "**Offline**")
                     )
                     embed.set_thumbnail(url='https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRFfI3vRa4Uu7DK2QmgeUY-tCLKyc4eOLGl5cvQDkjjlXe6y-NjFZwmbt-v&s=10')
-                    #yembed.set_footer(icon_url='https://s3.eu-west-1.amazonaws.com/cdn.growtopiagame.com/website/resources/assets/images/ubi_icon.png',text=f"Copyright Ubisoft {datetime.datetime.utcnow().year}")
+                    time = datetime.datetime.utcnow()-datetime.timedelta(hours=5)
+                    embed.set_footer(text=f"{time.hour}:{time.minute}:{str(time.second)[:1]} Growtopia Time")
                     await ctx.send(embed=embed)
     
 
