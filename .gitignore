@@ -1,6 +1,9 @@
-token.txt
 db/*
 __pycache__*
 avatars/*
 prize/*
-events.py
+/events.py
+attachments/*
+configs/*
+.env
+growtopia/*
